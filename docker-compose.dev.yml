@@ -1,0 +1,13 @@
+services:
+  telegram-copier-dev:
+    container_name: telegram-copier-dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./:/app
+    command: ["python", "main.py"]

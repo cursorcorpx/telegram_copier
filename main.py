@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import signal
+import sys
 from collections.abc import Sequence
 
 from telethon import TelegramClient, events
@@ -98,18 +99,42 @@ async def process_new_message_event(
         logger.exception("Unexpected error while copying message id=%s", message.id)
 
 
+async def start_client(client: TelegramClient, settings: Settings) -> None:
+    if settings.bot_token:
+        await client.start(bot_token=settings.bot_token)
+        logger.info("Started Telethon client in bot mode.")
+        return
+
+    has_tty = bool(getattr(sys.stdin, "isatty", lambda: False)())
+    if has_tty:
+        try:
+            await client.start()
+            logger.info("Started Telethon client in user mode.")
+            return
+        except EOFError as exc:
+            raise RuntimeError(
+                "Interactive login is not available in this environment. "
+                "Set BOT_TOKEN in .env, or mount a pre-authenticated .session file."
+            ) from exc
+
+    # Non-interactive mode: do not prompt. Use existing authorized session only.
+    await client.connect()
+    if await client.is_user_authorized():
+        logger.info("Started Telethon client in user mode using existing session.")
+        return
+
+    raise RuntimeError(
+        "Non-interactive environment with no authorized user session. "
+        "Set BOT_TOKEN in .env, or pre-create/mount a valid .session file."
+    )
+
+
 async def run() -> None:
     settings = Settings.from_env()
     setup_logging(settings.log_level)
 
     client = TelegramClient(settings.session_name, settings.api_id, settings.api_hash)
-
-    if settings.bot_token:
-        await client.start(bot_token=settings.bot_token)
-        logger.info("Started Telethon client in bot mode.")
-    else:
-        await client.start()
-        logger.info("Started Telethon client in user mode.")
+    await start_client(client, settings)
 
     logger.info(
         "Listening for messages from sources=%s and copying to destination=%s",

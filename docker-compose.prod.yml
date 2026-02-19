@@ -1,0 +1,18 @@
+services:
+  telegram-copier:
+    container_name: telegram-copier
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      SESSION_NAME: /app/data/telegram_copier
+    user: "0:0"
+    restart: unless-stopped
+    command: ["sh", "-c", "mkdir -p /app/data && python main.py"]
+    volumes:
+      - telegram_copier_data:/app/data
+
+volumes:
+  telegram_copier_data:

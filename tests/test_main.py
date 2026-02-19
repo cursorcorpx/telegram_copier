@@ -191,3 +191,58 @@ def test_process_album_event_end_to_end_in_process() -> None:
         drop_author=True,
         drop_media_captions=False,
     )
+
+
+def test_start_client_bot_mode_uses_bot_token() -> None:
+    client = AsyncMock()
+    settings = SimpleNamespace(bot_token="123:abc", session_name="telegram_copier")
+
+    asyncio.run(main.start_client(client, settings))
+
+    client.start.assert_awaited_once_with(bot_token="123:abc")
+
+
+def test_start_client_non_interactive_without_session_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = AsyncMock()
+    settings = SimpleNamespace(bot_token=None, session_name="missing_session")
+
+    stdin_mock = SimpleNamespace(isatty=lambda: False)
+    monkeypatch.setattr(main.sys, "stdin", stdin_mock)
+
+    client.connect = AsyncMock()
+    client.is_user_authorized = AsyncMock(return_value=False)
+
+    with pytest.raises(RuntimeError, match="Non-interactive environment with no authorized user session"):
+        asyncio.run(main.start_client(client, settings))
+
+
+def test_start_client_user_mode_eoferror_is_actionable(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = AsyncMock()
+    settings = SimpleNamespace(bot_token=None, session_name="telegram_copier")
+
+    stdin_mock = SimpleNamespace(isatty=lambda: True)
+    monkeypatch.setattr(main.sys, "stdin", stdin_mock)
+
+    async def raise_eof(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise EOFError
+
+    client.start = AsyncMock(side_effect=raise_eof)
+
+    with pytest.raises(RuntimeError, match="Interactive login is not available"):
+        asyncio.run(main.start_client(client, settings))
+
+
+def test_start_client_non_interactive_with_authorized_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = AsyncMock()
+    settings = SimpleNamespace(bot_token=None, session_name="telegram_copier")
+
+    stdin_mock = SimpleNamespace(isatty=lambda: False)
+    monkeypatch.setattr(main.sys, "stdin", stdin_mock)
+
+    client.connect = AsyncMock()
+    client.is_user_authorized = AsyncMock(return_value=True)
+
+    asyncio.run(main.start_client(client, settings))
+
+    client.connect.assert_awaited_once()
+    client.is_user_authorized.assert_awaited_once()

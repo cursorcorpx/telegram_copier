@@ -181,6 +181,43 @@ Run tests:
 python -m pytest -q
 ```
 
+## Docker (Multi-stage)
+
+Build image from project root:
+
+```bash
+docker build -t telegram-copier:latest ./telegram_copier
+```
+
+Run with `.env`:
+
+```bash
+docker run --rm --name telegram-copier --env-file ./telegram_copier/.env telegram-copier:latest
+```
+
+If you are doing first-time user login in Docker, run interactively:
+
+```bash
+docker run -it --rm --name telegram-copier --env-file ./telegram_copier/.env telegram-copier:latest
+```
+
+If you use user-mode login (no `BOT_TOKEN`), persist session file:
+
+```bash
+docker run --rm --name telegram-copier \
+  --env-file ./telegram_copier/.env \
+  -v $(pwd)/telegram_copier:/app \
+  telegram-copier:latest
+```
+
+Notes:
+- `BOT_TOKEN` mode is recommended for container/cloud deployments.
+- Startup behavior:
+  - If `BOT_TOKEN` is set: runs as bot.
+  - If `BOT_TOKEN` is empty and an authorized `.session` exists: runs as user session.
+  - If `BOT_TOKEN` is empty and no authorized `.session` exists: startup fails with clear error.
+- `.dockerignore` excludes `.env`, `.session`, tests, and local caches to keep image small.
+
 4. Deploy on Linux (systemd example)
 
 Create `/etc/systemd/system/telegram-copier.service`:
