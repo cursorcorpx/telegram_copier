@@ -506,6 +506,7 @@ def test_copy_source_messages_merges_snapshot_ids_with_live_fetch(monkeypatch: p
 
 def test_copy_source_messages_skips_ids_at_or_below_last_seen(monkeypatch: pytest.MonkeyPatch) -> None:
     module = load_module()
+    monkeypatch.setenv("ENABLE_CURSOR_GATE", "1")
 
     async def fake_load_state(client):  # noqa: ANN001
         return {"sources": {"-1001": {"last_id": 200, "recent": []}}}, 1
@@ -599,6 +600,7 @@ def test_copy_source_messages_allows_recovered_id_below_last_seen(monkeypatch: p
 
 def test_copy_source_messages_self_heals_when_cursor_ahead(monkeypatch: pytest.MonkeyPatch) -> None:
     module = load_module()
+    monkeypatch.setenv("ENABLE_CURSOR_GATE", "1")
 
     async def fake_load_state(client):  # noqa: ANN001
         return {"sources": {"-1001": {"last_id": 500, "recent": []}}}, 1

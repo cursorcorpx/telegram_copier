@@ -387,6 +387,10 @@ def _should_skip_message_text(text: str) -> bool:
     return False
 
 
+def _is_cursor_gate_enabled() -> bool:
+    return os.getenv("ENABLE_CURSOR_GATE", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
 async def _fetch_recent_messages(
     client: Any,
     source_id: int,
@@ -551,6 +555,7 @@ async def _copy_source_messages(client: Any, settings: AppwriteSettings) -> dict
     state_updated = False
     updated_source_keys: list[str] = []
     source_errors: dict[str, str] = {}
+    use_cursor_gate = _is_cursor_gate_enabled()
     run_window_ids_by_source: dict[str, list[int]] = {str(source_id): [] for source_id in settings.source_channel_ids}
     recent_snapshot_ids_by_source = await _load_recent_run_snapshot_ids(client=client, lookback_minutes=settings.lookback_minutes)
     # Force save every run so Saved Messages always reflects latest state metadata.
@@ -612,7 +617,12 @@ async def _copy_source_messages(client: Any, settings: AppwriteSettings) -> dict
                 message_ids = [
                     mid
                     for mid in message_ids
-                    if cursor_gate_disabled or mid > last_seen_id or mid in recovered_id_set
+                    if (
+                        (not use_cursor_gate)
+                        or cursor_gate_disabled
+                        or mid > last_seen_id
+                        or mid in recovered_id_set
+                    )
                 ]
                 skipped_cursor_gate_total += len(original_group_ids) - len(message_ids)
                 if not message_ids:
