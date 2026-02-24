@@ -1,260 +1,157 @@
-# Telegram Channel Copier (Telethon)
+# Telegram Copier (Appwrite + Telethon User Session)
 
-Production-ready async Telegram copier that listens to a source channel and copies messages/media to a destination channel without forward attribution.
+Production setup is Appwrite Function-based user-session sync.
 
-## Features
+## What It Does
 
-- Async architecture (Python 3.11+)
-- Telethon-based listener
-- Copies:
-  - text
-  - photos
-  - videos
-  - documents
-  - audio
-  - voice
-  - media groups (albums)
-- Uses `forward_messages(..., drop_author=True)` to copy without forward attribution
-- Preserves captions/formatting/media content
-- Logging and graceful shutdown
-- Flood wait handling and RPC error handling
+- Copies messages from one or many source channels to a destination channel.
+- Works on a scheduled run in Appwrite.
+- Uses a Telethon `SESSION_STRING` (user account session), not a bot token.
+- Tries to avoid duplicates while still covering the last lookback window.
+
+## Current Runtime Behavior
+
+- Lookback window:
+  - Controlled by `LOOKBACK_MINUTES` (default `60`).
+  - Fetches source messages by timestamp in that window.
+- Recovery:
+  - Reads per-run snapshot IDs from Saved Messages (`telegram_copier_run_v1`) and merges with live fetch.
+- Dedupe:
+  - Uses source cursor (`last_id`) and `recent` IDs to avoid repeats.
+  - Includes cursor self-heal if cursor is ahead of fetched range.
+- Sanitization:
+  - Removes Telegram links (`t.me/...`, `telegram.me/...`) and `youtube.com` links.
+  - Removes words `mc` and `bc`.
+- Blocking:
+  - Skips ad markers (`#ad`, `insideads*`).
+  - Optional stricter ad blocking with `BLOCK_GENERIC_AD_WORD=1` for standalone `ad`.
+  - Skips GIF messages/media.
+- Protected channels:
+  - Falls back to repost when forwarding is restricted.
+- State safety:
+  - Compacts oversized state payloads to avoid Telegram `MessageTooLongError`.
+- Session safety:
+  - Handles `AuthKeyDuplicatedError` with explicit actionable error.
+
+## Saved Messages Markers
+
+- State/checkpoint:
+  - `telegram_copier_state_v1:...`
+- Per-run snapshot:
+  - `telegram_copier_run_v1:...`
+
+## Key Metrics in Logs/Response
+
+- Core:
+  - `copied`, `fetched`, `skipped_invalid`, `filtered_links`, `sources_with_new_messages`
+- Skip breakdown:
+  - `skipped_invalid_runtime`
+  - `skipped_duplicate_recent`
+  - `skipped_cursor_gate`
+  - `skipped_blocked_ad`
+  - `skipped_blocked_gif`
+- State/run:
+  - `state_saved`, `state_message_id`, `updated_sources`
+  - `run_snapshot_count`, `run_snapshot_message_ids`
 
 ## Project Structure
 
 ```text
 telegram_copier/
-├── main.py
-├── config.py
-├── requirements.txt
-├── .env
-└── README.md
+├── appwrite.json
+├── APPWRITE_DEPLOY.md
+├── AGENTS.md
+├── appwrite/
+│   └── functions/
+│       ├── webhook/
+│       │   ├── requirements.txt
+│       │   └── src/main.py
+│       └── album_flush/
+├── tests/
+├── generate_session_string.py
+└── main.py
 ```
 
-## Prerequisites
+## Environment Variables (Appwrite Function: `telegram-copier-webhook`)
 
-- Python 3.11+
-- Telegram API credentials from https://my.telegram.org
-- Source and destination channel IDs (`-100...` format)
-- Permissions:
-  - Source: account/bot must be able to read channel posts
-  - Destination: account/bot must be able to post messages
+- Required:
+  - `API_ID`
+  - `API_HASH`
+  - `SESSION_STRING`
+  - `DESTINATION_CHANNEL_ID`
+  - `SOURCE_CHANNEL_ID` or `SOURCE_CHANNEL_IDS`
+- Optional:
+  - `LIMIT_PER_SOURCE` (default `50`, range `1..200`)
+  - `LOOKBACK_MINUTES` (default `60`, range `1..1440`)
+  - `BLOCK_GENERIC_AD_WORD` (`1`/`true` to block standalone `ad`)
 
-## Environment Variables
+## Deploy to Appwrite
 
-Create or update `.env`:
-
-```env
-API_ID=
-API_HASH=
-SESSION_NAME=telegram_copier
-SOURCE_CHANNEL_ID=
-# Optional for multiple sources (comma-separated). If set, it takes precedence.
-# SOURCE_CHANNEL_IDS=-1001111111111,-1002222222222
-DESTINATION_CHANNEL_ID=
-BOT_TOKEN=
-LOG_LEVEL=INFO
-```
-
-Notes:
-- `BOT_TOKEN` is optional.  
-  - If set: client starts in bot mode.
-  - If not set: client starts in user mode.
-- Channel IDs must be integers, typically negative supergroup/channel IDs like `-1001234567890`.
-- Multi-source support:
-  - Use `SOURCE_CHANNEL_ID` for one source.
-  - Use `SOURCE_CHANNEL_IDS` for multiple sources (comma-separated).
-  - If both are set, `SOURCE_CHANNEL_IDS` is used.
-
-## Find `DESTINATION_CHANNEL_ID` (and `SOURCE_CHANNEL_ID`)
-
-Use one of these methods.
-
-1. Telegram Desktop link method (quick)
-
-- Open the destination channel in Telegram Desktop.
-- Right-click any post and click `Copy Message Link`.
-- If link looks like `https://t.me/c/1234567890/15`, the channel ID is:
-  - `-1001234567890`
-- Same process for source channel.
-
-2. Telethon script method (most reliable)
-
-Create a temp file `print_dialog_ids.py` inside `telegram_copier/`:
-
-```python
-import asyncio
-import os
-from dotenv import load_dotenv
-from telethon import TelegramClient
-
-load_dotenv()
-
-
-async def main() -> None:
-    client = TelegramClient(
-        os.getenv("SESSION_NAME", "telegram_copier"),
-        int(os.environ["API_ID"]),
-        os.environ["API_HASH"],
-    )
-    await client.start(bot_token=os.getenv("BOT_TOKEN") or None)
-    async for dialog in client.iter_dialogs():
-        print(f"{dialog.name} => {dialog.id}")
-    await client.disconnect()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-Run it:
+1. Generate user session string:
 
 ```bash
-python print_dialog_ids.py
-```
-
-- Find your destination channel name in output.
-- Use its numeric value as `DESTINATION_CHANNEL_ID`.
-- Use the source channel value as `SOURCE_CHANNEL_ID`.
-- For multiple source channels, put them in `SOURCE_CHANNEL_IDS` separated by commas.
-
-Example:
-
-```env
-SOURCE_CHANNEL_IDS=-1001111111111,-1002222222222,-1003333333333
-```
-
-## Setup
-
-1. Install dependencies
-
-```bash
+cd telegram_copier
 python -m venv .venv
 source .venv/bin/activate   # Linux/macOS
-# .venv\Scripts\activate    # Windows PowerShell
+# .venv\Scripts\Activate.ps1 # Windows PowerShell
 pip install -r requirements.txt
+python generate_session_string.py
 ```
 
-2. First-time login
+2. In Appwrite Cloud, set function variables for `Telegram Copier User Sync`.
 
-- User mode (`BOT_TOKEN` empty):
-  - Run script and enter phone/code (and 2FA password if enabled).
-  - Telethon stores the session in a local `.session` file using `SESSION_NAME`.
-- Bot mode (`BOT_TOKEN` set):
-  - Ensure bot is admin in destination channel and has access to source channel posts.
-
-3. Run script
+3. Deploy functions:
 
 ```bash
-python main.py
+appwrite login
+appwrite push functions
 ```
 
-## Run Locally (Windows PowerShell)
+4. Trigger one manual run and inspect logs.
 
-From repo root (`f:\telegram-cp`):
+## Operational Troubleshooting
 
-```powershell
-cd .\telegram_copier
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python .\main.py
-```
+- `AuthKeyDuplicatedError`:
+  - Current `SESSION_STRING` is invalidated by Telegram.
+  - Generate a NEW session string, update Appwrite variable, redeploy.
+  - Ensure this session is used only by this runtime.
+- `copied=0` with `fetched>0`:
+  - Check skip counters in logs to see exact reason.
+  - Validate content is not blocked by ad/gif/sanitization rules.
+- State message too long:
+  - Already handled by compaction, should not crash current build.
 
-If you prefer running from repo root without `cd`:
-
-```powershell
-.\telegram_copier\.venv\Scripts\Activate.ps1
-python .\telegram_copier\main.py
-```
-
-## Tests
-
-Install test dependencies:
+## Local Testing
 
 ```bash
+cd telegram_copier
 pip install -r requirements-dev.txt
+python -m pytest -q
 ```
 
-Run tests:
+## Contributing
+
+1. Create a branch from latest mainline.
+2. Make focused changes (prefer small PRs).
+3. Add/update tests for behavior changes.
+4. Run full tests:
 
 ```bash
 python -m pytest -q
 ```
 
-## Docker (Multi-stage)
+5. Update docs when runtime behavior changes:
+  - `README.md`
+  - `AGENTS.md`
+  - `APPWRITE_DEPLOY.md` (if deployment steps changed)
+6. Open PR with:
+  - Problem statement
+  - Behavior change summary
+  - Test evidence
+  - Deployment impact/notes
 
-Build image from project root:
+## Security Notes
 
-```bash
-docker build -t telegram-copier:latest ./telegram_copier
-```
-
-Run with `.env`:
-
-```bash
-docker run --rm --name telegram-copier --env-file ./telegram_copier/.env telegram-copier:latest
-```
-
-If you are doing first-time user login in Docker, run interactively:
-
-```bash
-docker run -it --rm --name telegram-copier --env-file ./telegram_copier/.env telegram-copier:latest
-```
-
-If you use user-mode login (no `BOT_TOKEN`), persist session file:
-
-```bash
-docker run --rm --name telegram-copier \
-  --env-file ./telegram_copier/.env \
-  -v $(pwd)/telegram_copier:/app \
-  telegram-copier:latest
-```
-
-Notes:
-- `BOT_TOKEN` mode is recommended for container/cloud deployments.
-- Startup behavior:
-  - If `BOT_TOKEN` is set: runs as bot.
-  - If `BOT_TOKEN` is empty and an authorized `.session` exists: runs as user session.
-  - If `BOT_TOKEN` is empty and no authorized `.session` exists: startup fails with clear error.
-- `.dockerignore` excludes `.env`, `.session`, tests, and local caches to keep image small.
-
-4. Deploy on Linux (systemd example)
-
-Create `/etc/systemd/system/telegram-copier.service`:
-
-```ini
-[Unit]
-Description=Telegram Copier Bot
-After=network.target
-
-[Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=/opt/telegram_copier
-EnvironmentFile=/opt/telegram_copier/.env
-ExecStart=/opt/telegram_copier/.venv/bin/python /opt/telegram_copier/main.py
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable telegram-copier
-sudo systemctl start telegram-copier
-sudo systemctl status telegram-copier
-```
-
-## How It Avoids "Forwarded From"
-
-The app uses Telethon `forward_messages(..., drop_author=True, drop_media_captions=False)`, which removes forward attribution while preserving caption/media content.
-
-## Operational Notes
-
-- If you miss events while the process is down, this script does not backfill history by default.
-- Add monitoring (for example via systemd status checks, log shipping, or health checks) in production.
-- Keep `.env` and `.session` files secure.
+- Keep `SESSION_STRING`, `API_HASH`, and channel IDs private.
+- Do not commit `.env` secrets.
+- Rotate session if compromise is suspected.

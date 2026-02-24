@@ -1,0 +1,42 @@
+{
+  "projectId": "6996dedc00271499aa0b",
+  "projectName": "telegram-copier",
+  "functions": [
+    {
+      "$id": "telegram-copier-webhook",
+      "name": "Telegram Copier User Sync",
+      "runtime": "python-3.12",
+      "path": "appwrite/functions/webhook",
+      "entrypoint": "src/main.py",
+      "commands": "pip install -r requirements.txt",
+      "enabled": true,
+      "logging": true,
+      "timeout": 120,
+      "execute": [],
+      "events": [],
+      "schedule": "*/10 * * * *",
+      "scopes": [
+        "databases.read",
+        "databases.write"
+      ]
+    },
+    {
+      "$id": "telegram-copier-album-flush",
+      "name": "Telegram Copier Album Flush",
+      "runtime": "python-3.12",
+      "path": "appwrite/functions/album_flush",
+      "entrypoint": "src/main.py",
+      "commands": "pip install -r requirements.txt",
+      "enabled": true,
+      "logging": true,
+      "timeout": 30,
+      "execute": [],
+      "events": [],
+      "schedule": "",
+      "scopes": [
+        "databases.read",
+        "databases.write"
+      ]
+    }
+  ]
+}
