@@ -16,9 +16,6 @@ jobs:
   test:
     name: Run Tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: telegram_copier
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,8 +26,8 @@ jobs:
           python-version: "3.12"
           cache: "pip"
           cache-dependency-path: |
-            telegram_copier/requirements.txt
-            telegram_copier/requirements-dev.txt
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
         run: |
@@ -47,9 +44,6 @@ jobs:
     needs:
       - test
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    defaults:
-      run:
-        working-directory: telegram_copier
     steps:
       - name: Checkout
         uses: actions/checkout@v4
