@@ -11,7 +11,7 @@
       "commands": "pip install -r requirements.txt",
       "enabled": true,
       "logging": true,
-      "timeout": 120,
+      "timeout": 300,
       "execute": [],
       "events": [],
       "schedule": "*/10 * * * *",

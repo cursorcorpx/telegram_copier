@@ -150,6 +150,8 @@ async def _save_run_window_ids(
     for source_key in sorted(ids_by_source.keys()):
         raw_ids = ids_by_source.get(source_key, [])
         tokens = [str(int(mid)) for mid in raw_ids if isinstance(mid, int)]
+        if not tokens:
+            continue
         parts = _split_id_tokens(tokens, max_chars=2800)
         total_parts = len(parts)
 
@@ -160,7 +162,7 @@ async def _save_run_window_ids(
                 f"lookback_minutes={lookback_minutes};source_id={source_key};"
                 f"part={idx}/{total_parts};ids="
             )
-            ids_text = ",".join(part_tokens) if part_tokens else "-"
+            ids_text = ",".join(part_tokens)
             message_text = prefix + ids_text
             if len(message_text) > MAX_RUN_MESSAGE_CHARS:
                 ids_text = ids_text[: max(1, MAX_RUN_MESSAGE_CHARS - len(prefix))]
@@ -388,7 +390,11 @@ def _should_skip_message_text(text: str) -> bool:
 
 
 def _is_cursor_gate_enabled() -> bool:
-    return os.getenv("ENABLE_CURSOR_GATE", "0").strip().lower() in ("1", "true", "yes", "on")
+    return os.getenv("ENABLE_CURSOR_GATE", "1").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _is_snapshot_recovery_enabled() -> bool:
+    return os.getenv("ENABLE_SNAPSHOT_RECOVERY", "0").strip().lower() in ("1", "true", "yes", "on")
 
 
 async def _fetch_recent_messages(
@@ -556,8 +562,13 @@ async def _copy_source_messages(client: Any, settings: AppwriteSettings) -> dict
     updated_source_keys: list[str] = []
     source_errors: dict[str, str] = {}
     use_cursor_gate = _is_cursor_gate_enabled()
+    use_snapshot_recovery = _is_snapshot_recovery_enabled()
     run_window_ids_by_source: dict[str, list[int]] = {str(source_id): [] for source_id in settings.source_channel_ids}
-    recent_snapshot_ids_by_source = await _load_recent_run_snapshot_ids(client=client, lookback_minutes=settings.lookback_minutes)
+    recent_snapshot_ids_by_source = (
+        await _load_recent_run_snapshot_ids(client=client, lookback_minutes=settings.lookback_minutes)
+        if use_snapshot_recovery
+        else {}
+    )
     # Force save every run so Saved Messages always reflects latest state metadata.
     changed = True
     state_message_id, did_update = await _save_state(client=client, state=state, state_message_id=state_message_id)
@@ -583,7 +594,9 @@ async def _copy_source_messages(client: Any, settings: AppwriteSettings) -> dict
             snapshot_ids = sorted(
                 mid for mid in recent_snapshot_ids_by_source.get(key, set()) if isinstance(mid, int) and mid > 0
             )
-            missing_snapshot_ids = [mid for mid in snapshot_ids if mid not in live_message_ids]
+            missing_snapshot_ids = [
+                mid for mid in snapshot_ids if mid not in live_message_ids and mid > last_seen_id
+            ][: settings.limit_per_source]
             recovered_id_set: set[int] = set()
             if missing_snapshot_ids:
                 recovered = await client.get_messages(source_id, ids=missing_snapshot_ids)
@@ -621,7 +634,7 @@ async def _copy_source_messages(client: Any, settings: AppwriteSettings) -> dict
                         (not use_cursor_gate)
                         or cursor_gate_disabled
                         or mid > last_seen_id
-                        or mid in recovered_id_set
+                        or (mid in recovered_id_set and mid > last_seen_id)
                     )
                 ]
                 skipped_cursor_gate_total += len(original_group_ids) - len(message_ids)
@@ -1221,7 +1234,10 @@ def main(context: Any):
             f"filtered_links={result.get('filtered_links', 0)}, "
             f"sources_with_new_messages={result.get('sources_with_new_messages', 0)}, "
             f"source_errors_count={result.get('source_errors_count', 0)}, "
+            f"halted={result.get('halted', 0)}, "
+            f"flood_wait_seconds={result.get('flood_wait_seconds', 0)}, "
             f"state_saved={result.get('state_saved', 0)}, "
+            f"run_snapshot_count={result.get('run_snapshot_count', 0)}, "
             f"updated_sources={len(result.get('updated_sources', []))}, "
             f"state_message_id={result.get('state_message_id')}",
         )

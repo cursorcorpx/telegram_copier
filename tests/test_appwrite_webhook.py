@@ -456,6 +456,7 @@ def test_copy_source_messages_includes_run_snapshot(monkeypatch: pytest.MonkeyPa
 
 def test_copy_source_messages_merges_snapshot_ids_with_live_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
     module = load_module()
+    monkeypatch.setenv("ENABLE_SNAPSHOT_RECOVERY", "1")
 
     async def fake_load_state(client):  # noqa: ANN001
         return {"sources": {}}, 1
@@ -549,8 +550,9 @@ def test_copy_source_messages_skips_ids_at_or_below_last_seen(monkeypatch: pytes
     assert result["copied"] == 1
 
 
-def test_copy_source_messages_allows_recovered_id_below_last_seen(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_copy_source_messages_ignores_recovered_id_below_last_seen(monkeypatch: pytest.MonkeyPatch) -> None:
     module = load_module()
+    monkeypatch.setenv("ENABLE_SNAPSHOT_RECOVERY", "1")
 
     async def fake_load_state(client):  # noqa: ANN001
         return {"sources": {"-1001": {"last_id": 200, "recent": []}}}, 1
@@ -570,7 +572,7 @@ def test_copy_source_messages_allows_recovered_id_below_last_seen(monkeypatch: p
         assert ids == [199]
         return [SimpleNamespace(id=199, message="recovered", grouped_id=None, date=now)]
 
-    forward_mock = AsyncMock(side_effect=[(1, 0, (199,)), (1, 0, (201,))])
+    forward_mock = AsyncMock(side_effect=[(1, 0, (201,))])
     run_snapshot_mock = AsyncMock(return_value=[9])
 
     client = SimpleNamespace(get_messages=fake_get_messages)
@@ -594,8 +596,8 @@ def test_copy_source_messages_allows_recovered_id_below_last_seen(monkeypatch: p
 
     result = asyncio.run(module._copy_source_messages(client=client, settings=settings))
 
-    assert forward_mock.await_count == 2
-    assert result["copied"] == 2
+    assert forward_mock.await_count == 1
+    assert result["copied"] == 1
 
 
 def test_copy_source_messages_self_heals_when_cursor_ahead(monkeypatch: pytest.MonkeyPatch) -> None:
