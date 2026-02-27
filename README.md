@@ -122,7 +122,7 @@ Set these in: GitHub repo -> `Settings` -> `Secrets and variables` -> `Actions`.
 - `APPWRITE_PROJECT_ID`
   - Appwrite project ID
 - `APPWRITE_API_KEY`
-  - Appwrite API key with function deployment permission
+  - Appwrite API key with function deployment permission set.
 
 Minimum API key capability:
 - Permission to deploy/update functions for this project.
