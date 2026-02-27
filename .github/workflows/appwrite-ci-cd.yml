@@ -44,6 +44,13 @@ jobs:
     needs:
       - test
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+    env:
+      APPWRITE_ENDPOINT: ${{ secrets.APPWRITE_ENDPOINT }}
+      APPWRITE_PROJECT_ID: ${{ secrets.APPWRITE_PROJECT_ID }}
+      APPWRITE_API_KEY: ${{ secrets.APPWRITE_API_KEY }}
+
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,39 +63,40 @@ jobs:
       - name: Install Appwrite CLI
         run: npm install -g appwrite-cli
 
-      - name: Configure Appwrite CLI
-        env:
-          APPWRITE_ENDPOINT: ${{ secrets.APPWRITE_ENDPOINT }}
-          APPWRITE_PROJECT_ID: ${{ secrets.APPWRITE_PROJECT_ID }}
-          APPWRITE_API_KEY: ${{ secrets.APPWRITE_API_KEY }}
+      - name: Verify Secrets
         run: |
           set -euo pipefail
           if [ -z "$APPWRITE_ENDPOINT" ] || [ -z "$APPWRITE_PROJECT_ID" ] || [ -z "$APPWRITE_API_KEY" ]; then
-            echo "Missing one or more required secrets: APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_API_KEY"
+            echo "Missing required secrets."
             exit 1
           fi
+          echo "Secrets loaded successfully."        
 
-          appwrite client --endpoint "$APPWRITE_ENDPOINT" --project-id "$APPWRITE_PROJECT_ID" --key "$APPWRITE_API_KEY" \
-            || appwrite client --endpoint "$APPWRITE_ENDPOINT" --projectId "$APPWRITE_PROJECT_ID" --key "$APPWRITE_API_KEY"
-      
-      - name: Print endpoint
-        run: echo $APPWRITE_ENDPOINT
-        
-      - name: Debug Appwrite Auth
-        run: appwrite account get
+      - name: Configure Appwrite CLI
+
+        run: |
+
+          appwrite client --endpoint "$APPWRITE_ENDPOINT"
+          appwrite client --project "$APPWRITE_PROJECT_ID"
+          appwrite client --key "$APPWRITE_API_KEY"
+
 
       - name: Validate Appwrite auth/scopes
         run: |
           set -euo pipefail
           appwrite projects list >/dev/null
+          echo "Appwrite authentication successful."
 
       - name: Deploy functions
         run: |
           set -euo pipefail
           OUT_FILE="$(mktemp)"
+
           appwrite push functions --all --force 2>&1 | tee "$OUT_FILE" || true
 
           if grep -Eq "(✗ Error|No functions were pushed|missing scopes|role: guests)" "$OUT_FILE"; then
             echo "Appwrite deploy failed. See logs above."
             exit 1
           fi
+          
+          echo "Deployment successful."
