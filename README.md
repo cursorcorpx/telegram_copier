@@ -15,10 +15,12 @@ Production setup is Appwrite Function-based user-session sync.
   - Controlled by `LOOKBACK_MINUTES` (default `60`).
   - Fetches source messages by timestamp in that window.
 - Recovery:
-  - Reads per-run snapshot IDs from Saved Messages (`telegram_copier_run_v1`) and merges with live fetch.
+  - Snapshot recovery is optional (`ENABLE_SNAPSHOT_RECOVERY=1`).
+  - Default is off for stability/performance.
 - Dedupe:
   - Uses source cursor (`last_id`) and `recent` IDs to avoid repeats.
   - Includes cursor self-heal if cursor is ahead of fetched range.
+  - Cursor gate is enabled by default (`ENABLE_CURSOR_GATE=1`).
 - Sanitization:
   - Removes Telegram links (`t.me/...`, `telegram.me/...`) and `youtube.com` links.
   - Removes words `mc` and `bc`.
@@ -84,6 +86,55 @@ telegram_copier/
   - `LIMIT_PER_SOURCE` (default `50`, range `1..200`)
   - `LOOKBACK_MINUTES` (default `60`, range `1..1440`)
   - `BLOCK_GENERIC_AD_WORD` (`1`/`true` to block standalone `ad`)
+  - `ENABLE_CURSOR_GATE` (default `1`; set `0` only for debugging/replay scenarios)
+  - `ENABLE_SNAPSHOT_RECOVERY` (default `0`; set `1` to merge run snapshots into processing)
+
+## CI/CD (GitHub Actions)
+
+Workflow file:
+- `.github/workflows/appwrite-ci-cd.yml`
+
+Trigger behavior:
+- `pull_request` to `main`:
+  - Runs tests only.
+- `push` to `main`:
+  - Runs tests, then deploys Appwrite functions.
+- `workflow_dispatch`:
+  - Manual run from Actions tab (tests + deploy).
+
+Pipeline jobs:
+1. `test`
+- Python 3.12 setup
+- Installs `requirements.txt` and `requirements-dev.txt`
+- Runs `python -m pytest -q`
+
+2. `deploy` (after tests pass)
+- Installs Node.js + `appwrite-cli`
+- Authenticates Appwrite CLI using GitHub secrets
+- Runs `appwrite push functions`
+
+## GitHub Secrets Required
+
+Set these in: GitHub repo -> `Settings` -> `Secrets and variables` -> `Actions`.
+
+- `APPWRITE_ENDPOINT`
+  - Example: `https://cloud.appwrite.io/v1`
+- `APPWRITE_PROJECT_ID`
+  - Appwrite project ID
+- `APPWRITE_API_KEY`
+  - Appwrite API key with function deployment permission
+
+Minimum API key capability:
+- Permission to deploy/update functions for this project.
+
+## Optional GitHub Environments (Recommended)
+
+Use `production` environment to protect deploys:
+- Add required reviewers for deploy approval.
+- Store production secrets in environment-scoped secrets.
+- Restrict deploy to `main` only.
+
+If you implement environment protection in workflow later, contributors can still run tests on PR without deploy permissions.
 
 ## Deploy to Appwrite
 
@@ -149,6 +200,10 @@ python -m pytest -q
   - Behavior change summary
   - Test evidence
   - Deployment impact/notes
+7. Merge policy:
+  - PR merge to `main` triggers production deploy workflow.
+  - Do not merge if CI tests fail.
+  - If deployment-related files changed (`appwrite.json`, `appwrite/functions/**`), include explicit deploy notes in PR.
 
 ## Security Notes
 

@@ -70,6 +70,9 @@ jobs:
 
           appwrite client --endpoint "$APPWRITE_ENDPOINT" --project-id "$APPWRITE_PROJECT_ID" --key "$APPWRITE_API_KEY" \
             || appwrite client --endpoint "$APPWRITE_ENDPOINT" --projectId "$APPWRITE_PROJECT_ID" --key "$APPWRITE_API_KEY"
+            
+      - name: Debug Appwrite Auth
+        run: appwrite account get
 
       - name: Validate Appwrite auth/scopes
         run: |
