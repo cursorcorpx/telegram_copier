@@ -81,10 +81,10 @@ jobs:
           appwrite client --key "$APPWRITE_API_KEY"
 
 
-      - name: Validate Appwrite auth/scopes
+      - name: Validate Appwrite Authentication
         run: |
           set -euo pipefail
-          appwrite projects list >/dev/null
+          appwrite functions list >/dev/null
           echo "Appwrite authentication successful."
 
       - name: Deploy functions
