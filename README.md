@@ -205,6 +205,78 @@ python -m pytest -q
   - Do not merge if CI tests fail.
   - If deployment-related files changed (`appwrite.json`, `appwrite/functions/**`), include explicit deploy notes in PR.
 
+## Next Features Roadmap
+
+Planned near-term improvements:
+
+1. Source-level controls
+- Per-source enable/disable toggles.
+- Per-source custom filters (ad/gif/link policies).
+
+2. Better observability
+- Add per-source copy/skip counters in run summary.
+- Export structured logs for easier dashboarding.
+
+3. Stronger retry behavior
+- Controlled retry for transient Telegram RPC errors.
+- Better flood-wait backoff strategy.
+
+4. Safer deployment model
+- Optional staging workflow before production deploy.
+- Environment-protected deploy approvals in GitHub Actions.
+
+## AI Improvement Plan
+
+Reference design:
+- `AI.Readme.md`
+
+### Target integration points
+
+1. Pre-send classifier
+- After deterministic filters, before send.
+- Decide `copy|skip|rewrite`.
+
+2. Text transform layer
+- Rewrite/normalize/translate selected messages.
+- Keep media pipeline unchanged initially.
+
+3. Policy assistant
+- AI assist for detecting promo/spam variants not covered by regex.
+
+### Suggested implementation phases
+
+Phase 1: Shadow mode
+- AI runs but does not affect output.
+- Log decisions only (`ai_action`, `ai_reason`, `ai_latency_ms`).
+
+Phase 2: Controlled enforcement
+- Enforce only `skip` for high-confidence promo/spam.
+- Keep fail-open fallback to avoid dropping valid posts on AI errors.
+
+Phase 3: Rewrite/translation
+- Enable `rewrite` for selected source channels.
+- Add hard length checks and timeout caps.
+
+Phase 4: Optimization
+- Prompt tuning and caching.
+- Per-source AI policies.
+
+### Required AI env vars (planned)
+
+- `AI_ENABLED=0|1`
+- `AI_MODE=classify|rewrite|translate|summary`
+- `AI_MODEL=<model-name>`
+- `AI_API_KEY=<secret>`
+- `AI_TIMEOUT_MS=3000`
+- `AI_FAIL_OPEN=1|0`
+
+### Guardrails
+
+- Keep deterministic filters as first pass.
+- Enforce strict timeout for AI calls.
+- Never block the full sync run on AI failure.
+- Log AI decisions for auditability.
+
 ## Security Notes
 
 - Keep `SESSION_STRING`, `API_HASH`, and channel IDs private.
