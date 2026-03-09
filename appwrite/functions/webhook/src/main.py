@@ -47,7 +47,7 @@ MAX_RECENT_IDS = 2000
 MAX_STATE_PAYLOAD_CHARS = 3800
 MAX_RUN_MESSAGE_CHARS = 3800
 DEFAULT_FUNCTION_NAME = "telegram_copier_run_v1"
-BUILD_VERSION = "2026-03-08-appwrite-db-state-v4"
+BUILD_VERSION = "2026-03-09-inline-entity-preserve-v6"
 DB_LOG_LAST_ERROR = ""
 DB_STATE_LAST_ERROR = ""
 STATE_ROW_ID = "state_global_v1"
@@ -820,20 +820,30 @@ def _set_run_meta(state: dict[str, Any], **kwargs: Any) -> None:
 
 def _sanitize_message_text(text: str) -> str:
     cleaned = text
+    modified = False
     strip_t_links = os.getenv("STRIP_T_LINKS", "0").strip().lower() in ("1", "true", "yes", "on")
     strip_youtube = os.getenv("STRIP_YOUTUBE_LINKS", "0").strip().lower() in ("1", "true", "yes", "on")
     bad_words_csv = os.getenv("FILTER_BAD_WORDS", "").strip()
 
     # Optional filters; defaults preserve links exactly as in source.
     if strip_t_links:
-        cleaned = TELEGRAM_LINK_PATTERN.sub("", cleaned)
+        updated = TELEGRAM_LINK_PATTERN.sub("", cleaned)
+        modified = modified or updated != cleaned
+        cleaned = updated
     if strip_youtube:
-        cleaned = YOUTUBE_PATTERN.sub("", cleaned)
+        updated = YOUTUBE_PATTERN.sub("", cleaned)
+        modified = modified or updated != cleaned
+        cleaned = updated
     if bad_words_csv:
         bad_words = [re.escape(part.strip()) for part in bad_words_csv.split(",") if part.strip()]
         if bad_words:
             bad_words_pattern = re.compile(r"\b(?:" + "|".join(bad_words) + r")\b", re.IGNORECASE)
-            cleaned = bad_words_pattern.sub("", cleaned)
+            updated = bad_words_pattern.sub("", cleaned)
+            modified = modified or updated != cleaned
+            cleaned = updated
+
+    if not modified:
+        return text
 
     # Normalize spaces introduced by removals.
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
@@ -1272,8 +1282,8 @@ async def _copy_source_messages(client: Any, settings: AppwriteSettings) -> dict
                     album_ids = tuple(message_ids)
                     album_messages = [msg for msg in messages if int(getattr(msg, "id", 0)) in set(album_ids)]
                     if any(
-                        _sanitize_message_text(getattr(msg, "message", "") or "")
-                        != (getattr(msg, "message", "") or "").strip()
+                        _sanitize_message_text(getattr(msg, "message", None) or "")
+                        != (getattr(msg, "message", "") or "")
                         for msg in album_messages
                     ):
                         for msg in album_messages:
@@ -1583,7 +1593,7 @@ async def _copy_single_with_optional_sanitize(
     if _is_gif_message(message):
         return 0, 1, 0, (message_id,)
 
-    original_text = (getattr(message, "message", None) or "").strip()
+    original_text = getattr(message, "message", None) or ""
     cleaned_text = _sanitize_message_text(original_text)
     has_media = _has_sendable_media(message)
     is_sanitized = cleaned_text != original_text
@@ -1740,7 +1750,8 @@ async def _repost_messages_without_forward(
             processed.append(int(mid))
             continue
 
-        text = (getattr(msg, "message", None) or "").strip()
+        raw_text = getattr(msg, "message", None) or ""
+        text = raw_text
         cleaned_text = _sanitize_message_text(text)
         entities = getattr(msg, "entities", None) if cleaned_text == text else None
         has_media = _has_sendable_media(msg)

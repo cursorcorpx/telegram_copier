@@ -1082,9 +1082,9 @@ def test_copy_source_messages_self_heals_when_cursor_ahead(monkeypatch: pytest.M
     assert forward_mock.await_count == 2
 
 
-def test_repost_messages_without_forward_preserves_entities_when_not_sanitized() -> None:
+def test_repost_messages_without_forward_preserves_inline_entities() -> None:
     module = load_module()
-    hyperlink_entities = [SimpleNamespace(offset=0, length=10, url="https://test1.com")]
+    hyperlink_entities = [SimpleNamespace(offset=0, length=11, url="https://test1.com")]
 
     class FakeClient:
         def __init__(self) -> None:
@@ -1096,7 +1096,7 @@ def test_repost_messages_without_forward_preserves_entities_when_not_sanitized()
             return [
                 SimpleNamespace(
                     id=123,
-                    message="GkyFilehost (https://test1.com)",
+                    message="GkyFilehost",
                     entities=hyperlink_entities,
                     media=None,
                     gif=False,
@@ -1124,5 +1124,49 @@ def test_repost_messages_without_forward_preserves_entities_when_not_sanitized()
     assert skipped == 0
     assert processed == (123,)
     assert client.sent_kwargs is not None
-    assert client.sent_kwargs["message"] == "GkyFilehost (https://test1.com)"
+    assert client.sent_kwargs["message"] == "GkyFilehost"
+    assert client.sent_kwargs["formatting_entities"] == hyperlink_entities
+
+
+def test_repost_messages_without_forward_preserves_entities_without_stripping_text() -> None:
+    module = load_module()
+    hyperlink_entities = [SimpleNamespace(offset=0, length=11, url="https://test1.com")]
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.sent_kwargs = None
+
+        async def get_messages(self, source_id, ids):  # noqa: ANN001
+            return [
+                SimpleNamespace(
+                    id=123,
+                    message="GkyFilehost  ",
+                    entities=hyperlink_entities,
+                    media=None,
+                    gif=False,
+                )
+            ]
+
+        async def send_message(self, **kwargs):  # noqa: ANN003
+            self.sent_kwargs = kwargs
+            return FakeSentMessage(1)
+
+        async def send_file(self, **kwargs):  # noqa: ANN003
+            raise AssertionError("send_file should not be called for text-only message")
+
+    client = FakeClient()
+    copied, skipped, processed = asyncio.run(
+        module._repost_messages_without_forward(
+            client=client,
+            destination_channel_id=-2002,
+            source_id=-1001,
+            message_ids=[123],
+        )
+    )
+
+    assert copied == 1
+    assert skipped == 0
+    assert processed == (123,)
+    assert client.sent_kwargs is not None
+    assert client.sent_kwargs["message"] == "GkyFilehost  "
     assert client.sent_kwargs["formatting_entities"] == hyperlink_entities
