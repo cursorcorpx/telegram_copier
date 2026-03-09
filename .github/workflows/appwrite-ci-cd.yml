@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: appwrite-cicd-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Run Tests
@@ -44,6 +48,8 @@ jobs:
     needs:
       - test
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    environment:
+      name: production
 
     env:
       APPWRITE_ENDPOINT: ${{ secrets.APPWRITE_ENDPOINT }}
@@ -88,6 +94,7 @@ jobs:
           echo "Appwrite authentication successful."
 
       - name: Deploy functions
+        working-directory: telegram_copier
         run: |
           set -euo pipefail
           OUT_FILE="$(mktemp)"
